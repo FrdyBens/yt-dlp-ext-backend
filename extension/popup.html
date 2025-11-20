@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Local YouTube Downloader</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="title">Local YouTube Downloader</div>
+      <div class="subtitle">Powered by your Python + yt-dlp backend</div>
+    </header>
+
+    <section class="url-section">
+      <label for="urlInput">YouTube URL</label>
+      <div class="url-row">
+        <input type="text" id="urlInput" placeholder="Paste a YouTube video / playlist / channel URL" />
+        <button id="fetchInfoBtn">Fetch Info</button>
+      </div>
+      <div id="backendStatus" class="backend-status"></div>
+    </section>
+
+    <section id="videoInfoSection" class="card hidden">
+      <div class="video-header">
+        <img id="videoThumbnail" class="thumb" />
+        <div class="meta">
+          <div id="videoTitle" class="video-title"></div>
+          <div id="videoChannel" class="video-channel"></div>
+          <div id="videoStats" class="video-stats"></div>
+        </div>
+      </div>
+
+      <div id="playlistSection" class="playlist-section hidden">
+        <div class="playlist-header">
+          <span id="playlistCount"></span>
+        </div>
+        <div class="playlist-modes">
+          <label><input type="radio" name="playlistMode" value="all" checked /> Full playlist</label>
+          <label>
+            <input type="radio" name="playlistMode" value="range" />
+            Range:
+            <input type="number" id="rangeStart" min="1" placeholder="Start" />
+            <span>–</span>
+            <input type="number" id="rangeEnd" min="1" placeholder="End" />
+          </label>
+          <label>
+            <input type="radio" name="playlistMode" value="selection" />
+            Manual selection
+          </label>
+        </div>
+        <div id="playlistItemsContainer" class="playlist-items"></div>
+      </div>
+    </section>
+
+    <section id="settingsSection" class="card hidden">
+      <h2>Download Settings</h2>
+
+      <div class="field-row">
+        <label for="formatSelect">Format</label>
+        <select id="formatSelect">
+          <option value="mp4">MP4 (video+audio)</option>
+          <option value="webm">WebM (video+audio)</option>
+          <option value="mp3">MP3 (audio)</option>
+          <option value="m4a">M4A (audio)</option>
+          <option value="wav">WAV (audio)</option>
+          <option value="custom">Custom format string</option>
+        </select>
+      </div>
+
+      <div class="field-row" id="customFormatRow" style="display:none;">
+        <label for="customFormatInput">yt-dlp format</label>
+        <input type="text" id="customFormatInput" placeholder="e.g. bestvideo[height<=720]+bestaudio" />
+      </div>
+
+      <div class="field-row">
+        <label for="qualitySelect">Quality (video)</label>
+        <select id="qualitySelect">
+          <option value="best">Best available</option>
+          <option value="144p">144p</option>
+          <option value="240p">240p</option>
+          <option value="360p">360p</option>
+          <option value="480p">480p</option>
+          <option value="720p">720p</option>
+          <option value="1080p">1080p</option>
+          <option value="1440p">1440p (2K)</option>
+          <option value="2160p">2160p (4K)</option>
+          <option value="4320p">4320p (8K)</option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <label for="audioBitrateSelect">Audio bitrate</label>
+        <select id="audioBitrateSelect">
+          <option value="best">Best</option>
+          <option value="128k">128 kbps</option>
+          <option value="160k">160 kbps</option>
+          <option value="192k">192 kbps</option>
+          <option value="256k">256 kbps</option>
+          <option value="320k">320 kbps</option>
+        </select>
+      </div>
+
+      <div class="field-row">
+        <label>Subtitles</label>
+        <div class="field-stack">
+          <label><input type="checkbox" id="subtitlesCheckbox" /> Download subtitles</label>
+          <label><input type="checkbox" id="embedSubsCheckbox" /> Embed subtitles (if supported)</label>
+          <input type="text" id="subsLanguagesInput" placeholder="Languages (e.g. en,es,fr)" />
+        </div>
+      </div>
+
+      <div class="field-row">
+        <label for="thumbEmbedCheckbox">Thumbnail</label>
+        <label class="toggle">
+          <input type="checkbox" id="thumbEmbedCheckbox" checked />
+          <span class="slider"></span>
+          <span class="toggle-label">Embed thumbnail into file</span>
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>Output folder</label>
+        <div id="outputFolderPreview" class="output-folder"></div>
+      </div>
+
+      <div class="actions-row">
+        <button id="startDownloadBtn" class="primary">Start Download</button>
+      </div>
+      <div id="errorArea" class="error-text"></div>
+    </section>
+
+    <section id="jobsSection" class="card">
+      <h2>Downloads</h2>
+      <div id="currentJobs" class="jobs-list"></div>
+      <h3 class="queue-title">Queue & History</h3>
+      <div id="queueJobs" class="jobs-list"></div>
+    </section>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

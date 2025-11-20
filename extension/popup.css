@@ -1,0 +1,386 @@
+/* Popup styles (same as provided earlier) */
+:root {
+  --bg: #0b0b10;
+  --bg-card: #161622;
+  --bg-card-soft: #1e1e2a;
+  --accent: #ff4b8b;
+  --accent-soft: rgba(255, 75, 139, 0.2);
+  --border: #2a2a3a;
+  --text: #f8f8ff;
+  --text-muted: #a0a0c0;
+  --danger: #ff4b6b;
+  --success: #3fd092;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f5fb;
+    --bg-card: #ffffff;
+    --bg-card-soft: #f0f0ff;
+    --accent: #ff4b8b;
+    --accent-soft: rgba(255, 75, 139, 0.12);
+    --border: #d0d0e0;
+    --text: #11111a;
+    --text-muted: #555575;
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  width: 420px;
+  min-height: 500px;
+}
+
+#app {
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+header {
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.url-section {
+  margin-bottom: 10px;
+}
+
+.url-row {
+  display: flex;
+  gap: 6px;
+}
+
+label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card-soft);
+  color: var(--text);
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+button {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--bg-card-soft);
+  color: var(--text);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.backend-status {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.card {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.video-header {
+  display: flex;
+  gap: 8px;
+}
+
+.thumb {
+  width: 90px;
+  height: 50px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #222;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.video-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.video-channel,
+.video-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.playlist-section {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 6px;
+}
+
+.playlist-header {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.playlist-modes {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.playlist-items {
+  max-height: 140px;
+  overflow-y: auto;
+  margin-top: 6px;
+  border-radius: 8px;
+  background: var(--bg-card-soft);
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 2px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.playlist-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.playlist-item img {
+  width: 40px;
+  height: 22px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.playlist-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.field-row > label {
+  flex: 0 0 120px;
+}
+
+.field-row > select,
+.field-row > input {
+  flex: 1;
+}
+
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.toggle input {
+  display: none;
+}
+
+.slider {
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: #555;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.slider::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+
+.toggle input:checked + .slider {
+  background: var(--accent);
+}
+
+.toggle input:checked + .slider::after {
+  transform: translateX(14px);
+}
+
+.toggle-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.output-folder {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.actions-row {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.error-text {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.job-card {
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.job-title {
+  font-weight: 500;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.job-status.completed {
+  color: var(--success);
+}
+
+.job-status.error {
+  color: var(--danger);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #ff9ac1);
+  transition: width 0.15s linear;
+}
+
+.job-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.job-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.job-actions button {
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+.queue-title {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
