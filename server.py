@@ -1,31 +1,37 @@
 #!/usr/bin/env python3
+import json
 import os
 import threading
 import uuid
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 # ---------------- CONFIG ---------------- #
 
+load_dotenv()
+
+
 class Config:
     # Where to save everything
-    DOWNLOAD_DIR = os.path.expanduser("~/Downloads/yt-downloader")
+    DOWNLOAD_DIR = os.path.expanduser(os.getenv("DOWNLOAD_DIR", "./downloads"))
 
     # Max concurrent jobs
-    MAX_CONCURRENT_JOBS = 2
+    MAX_CONCURRENT_JOBS = int(os.getenv("MAX_CONCURRENT_JOBS", "3"))
 
     # Filename template (yt-dlp style)
-    FILENAME_TEMPLATE = "%(title)s [%(id)s].%(ext)s"
+    FILENAME_TEMPLATE = os.getenv("FILENAME_TEMPLATE", "%(title)s [%(id)s].%(ext)s")
 
     # Default thumbnail embedding toggle
-    EMBED_THUMBNAIL_DEFAULT = True
+    EMBED_THUMBNAIL_DEFAULT = os.getenv("EMBED_THUMBNAIL_DEFAULT", "true").lower() == "true"
 
     # FFmpeg path (None = use system)
-    FFMPEG_LOCATION = None
+    FFMPEG_LOCATION = os.getenv("FFMPEG_LOCATION") or None
 
     # Allowed hostnames
     ALLOWED_HOSTS = [
@@ -36,7 +42,15 @@ class Config:
         "m.youtube.com"
     ]
 
-os.makedirs(Config.DOWNLOAD_DIR, exist_ok=True)
+    PORT = int(os.getenv("PORT", "5005"))
+    DEFAULT_AUDIO_BITRATE = os.getenv("DEFAULT_AUDIO_BITRATE", "320k")
+    DEFAULT_VIDEO_FORMAT = os.getenv("DEFAULT_VIDEO_FORMAT", "mp4")
+    THUMBNAIL_QUALITY = os.getenv("THUMBNAIL_QUALITY", "max")
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+    BACKEND_MODE = os.getenv("BACKEND_MODE", "local")
+    REMOTE_BASE_URL = os.getenv("REMOTE_BASE_URL", "")
+
+Path(Config.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
 # ---------------- JOB MODEL ---------------- #
 
@@ -145,11 +159,17 @@ class JobLogger:
             self.job.log.append(text)
             self.job.updated_at = time.time()
 
+
+def ensure_cache_dir():
+    cache_dir = Path(__file__).parent / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir
+
 # ---------------- yt-dlp OPTIONS BUILDER ---------------- #
 
 def build_format_string(options):
     """Map UI options -> yt-dlp format string."""
-    fmt = options.get("format", "mp4")
+    fmt = options.get("format", Config.DEFAULT_VIDEO_FORMAT)
     quality = options.get("quality", "best")
     custom_format = options.get("custom_format")
 
@@ -170,8 +190,8 @@ def build_format_string(options):
     }
 
     if fmt in ("mp3", "m4a", "wav", "audio", "bestaudio"):
-        # Audio-only, convert later
-        return "bestaudio/best"
+        # Strict audio-only path: never touch video streams or mp4 containers when possible
+        return "bestaudio[vcodec=none][ext!=mp4][ext!=m4a]/bestaudio[vcodec=none][ext!=mp4]/bestaudio[vcodec=none]"
 
     # Video+audio combos
     if quality == "best" or quality not in quality_map:
@@ -203,7 +223,11 @@ def build_ydl_opts(job: Job):
 
     embed_thumb = bool(opts.get("embed_thumbnail", Config.EMBED_THUMBNAIL_DEFAULT))
     fmt = opts.get("format", "mp4")
-    audio_bitrate = opts.get("audio_bitrate", "192k").replace("kbps", "").replace("k", "")
+    allowed_bitrates = {"128k", "192k", "256k", "320k"}
+    audio_bitrate_raw = str(opts.get("audio_bitrate") or Config.DEFAULT_AUDIO_BITRATE)
+    if not audio_bitrate_raw.endswith("k"):
+        audio_bitrate_raw = f"{audio_bitrate_raw}k" if audio_bitrate_raw.isdigit() else audio_bitrate_raw
+    audio_bitrate = audio_bitrate_raw if audio_bitrate_raw in allowed_bitrates else Config.DEFAULT_AUDIO_BITRATE
 
     # Playlist handling
     playlist = opts.get("playlist", {}) or {}
@@ -226,7 +250,7 @@ def build_ydl_opts(job: Job):
         postprocessors.append({
             "key": "FFmpegExtractAudio",
             "preferredcodec": fmt,
-            "preferredquality": audio_bitrate or "192",
+            "preferredquality": audio_bitrate.replace("k", ""),
         })
 
     # Thumbnails: write + convert + embed + metadata
@@ -269,6 +293,36 @@ def build_ydl_opts(job: Job):
             ydl_opts["embedsubtitles"] = True
 
     return ydl_opts
+
+
+def collect_metadata(info):
+    """Build a metadata dict suitable for MP3 tagging."""
+    if not info:
+        return {}
+    tags = info.get("tags") or []
+    upload_date = info.get("upload_date") or ""
+    year = upload_date[:4] if upload_date else None
+    playlist_count = None
+    if info.get("_type") == "playlist":
+        playlist_count = len(info.get("entries") or [])
+        # prefer first entry for metadata preview
+        if info.get("entries"):
+            info = info["entries"][0]
+    metadata = {
+        "title": info.get("title"),
+        "artist": info.get("artist") or info.get("uploader") or info.get("channel"),
+        "channel": info.get("channel") or info.get("uploader"),
+        "album": info.get("album") or info.get("channel") or info.get("uploader"),
+        "genre": (tags[0] if tags else None) or "Other",
+        "year": year,
+        "date": upload_date,
+        "description": info.get("description"),
+        "track_index": info.get("playlist_index"),
+        "total_tracks": playlist_count,
+        "comment": info.get("comment") or info.get("description"),
+        "thumbnail": info.get("thumbnail"),
+    }
+    return {k: v for k, v in metadata.items() if v is not None}
 
 def make_progress_hook(job: Job):
     def hook(d):
@@ -531,6 +585,85 @@ def api_config():
         "embed_thumbnail_default": Config.EMBED_THUMBNAIL_DEFAULT,
     })
 
+
+@app.route("/api/settings", methods=["GET"])
+def api_settings():
+    return jsonify({
+        "download_dir": Config.DOWNLOAD_DIR,
+        "max_concurrent_jobs": Config.MAX_CONCURRENT_JOBS,
+        "filename_template": Config.FILENAME_TEMPLATE,
+        "default_audio_bitrate": Config.DEFAULT_AUDIO_BITRATE,
+        "default_video_format": Config.DEFAULT_VIDEO_FORMAT,
+        "thumbnail_quality": Config.THUMBNAIL_QUALITY,
+        "log_level": Config.LOG_LEVEL,
+        "backend_mode": Config.BACKEND_MODE,
+        "remote_base_url": Config.REMOTE_BASE_URL,
+    })
+
+
+@app.route("/api/metadata/generate", methods=["POST", "OPTIONS"])
+def api_metadata_generate():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    data = request.get_json(force=True, silent=True) or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+    ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True}
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to fetch metadata: {exc}"}), 500
+    metadata = collect_metadata(info)
+    cache_dir = ensure_cache_dir()
+    (cache_dir / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return jsonify({"metadata": metadata})
+
+
+@app.route("/api/metadata/save", methods=["POST", "OPTIONS"])
+def api_metadata_save():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    data = request.get_json(force=True, silent=True) or {}
+    url = data.get("url", "").strip()
+    metadata = data.get("metadata") or {}
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+    cache_dir = ensure_cache_dir()
+    (cache_dir / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return jsonify({"status": "saved", "metadata": metadata})
+
+
+@app.route("/api/formats/<path:url>", methods=["GET"])
+def api_formats(url):
+    if not is_allowed_youtube_url(url):
+        return jsonify({"error": "Invalid or unsupported URL. Only YouTube URLs are allowed."}), 400
+    ydl_opts = {"skip_download": True, "quiet": True, "no_warnings": True}
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        return jsonify({"error": f"Failed to fetch formats: {exc}"}), 500
+    formats = []
+    for f in info.get("formats") or []:
+        formats.append({
+            "format_id": f.get("format_id"),
+            "ext": f.get("ext"),
+            "format_note": f.get("format_note"),
+            "filesize": f.get("filesize") or f.get("filesize_approx"),
+            "tbr": f.get("tbr"),
+            "vcodec": f.get("vcodec"),
+            "acodec": f.get("acodec"),
+        })
+    return jsonify({"formats": formats})
+
 if __name__ == "__main__":
     # Bind only to localhost for safety
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host="127.0.0.1", port=Config.PORT, debug=False)

@@ -1,4 +1,4 @@
-const BACKEND_BASE = "http://127.0.0.1:5001";
+const BACKEND_BASE = "http://127.0.0.1:5005";
 
 const els = {};
 const jobsState = {
@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadBackendConfig();
   refreshQueue();
   setInterval(refreshQueue, 5000);
+  updateFormatVisibility();
 });
 
 function cacheEls() {
@@ -58,6 +59,7 @@ function setupEvents() {
   els.formatSelect.addEventListener("change", () => {
     const val = els.formatSelect.value;
     els.customFormatRow.style.display = val === "custom" ? "flex" : "none";
+    updateFormatVisibility();
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -66,6 +68,39 @@ function setupEvents() {
       sendResponse && sendResponse({ ok: true });
     }
   });
+}
+
+function updateFormatVisibility() {
+  const format = els.formatSelect?.value || "mp4";
+  const isAudio = format === "mp3" || format === "m4a";
+  const isVideo = format === "mp4" || format === "webm";
+
+  if (els.qualitySelect) {
+    els.qualitySelect.closest(".form-row").style.display = isVideo ? "flex" : "none";
+  }
+  if (els.subtitlesCheckbox) {
+    const subsRow = els.subtitlesCheckbox.closest(".form-row");
+    if (subsRow) subsRow.style.display = isVideo ? "flex" : "none";
+  }
+  if (els.embedSubsCheckbox) {
+    const row = els.embedSubsCheckbox.closest(".form-row");
+    if (row) row.style.display = isVideo ? "flex" : "none";
+  }
+  if (els.subsLanguagesInput) {
+    const row = els.subsLanguagesInput.closest(".form-row");
+    if (row) row.style.display = isVideo ? "flex" : "none";
+  }
+
+  if (els.audioBitrateSelect) {
+    const row = els.audioBitrateSelect.closest(".form-row");
+    row.style.display = isAudio ? "flex" : "none";
+  }
+
+  if (els.thumbEmbedCheckbox) {
+    const row = els.thumbEmbedCheckbox.closest(".form-row");
+    row.style.display = isAudio || isVideo ? "flex" : "flex";
+    els.thumbEmbedCheckbox.checked = true;
+  }
 }
 
 function prefillUrlFromActiveTab() {
