@@ -1,4 +1,4 @@
-const BACKEND_BASE = "http://127.0.0.1:5001";
+let BACKEND_BASE = "http://127.0.0.1:5005";
 
 const els = {};
 const jobsState = {
@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadBackendConfig();
   refreshQueue();
   setInterval(refreshQueue, 5000);
+  updateFormatVisibility();
 });
 
 function cacheEls() {
@@ -58,6 +59,7 @@ function setupEvents() {
   els.formatSelect.addEventListener("change", () => {
     const val = els.formatSelect.value;
     els.customFormatRow.style.display = val === "custom" ? "flex" : "none";
+    updateFormatVisibility();
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -66,6 +68,39 @@ function setupEvents() {
       sendResponse && sendResponse({ ok: true });
     }
   });
+}
+
+function updateFormatVisibility() {
+  const format = els.formatSelect?.value || "mp4";
+  const isAudio = format === "mp3" || format === "m4a";
+  const isVideo = format === "mp4" || format === "webm";
+
+  if (els.qualitySelect) {
+    els.qualitySelect.closest(".form-row").style.display = isVideo ? "flex" : "none";
+  }
+  if (els.subtitlesCheckbox) {
+    const subsRow = els.subtitlesCheckbox.closest(".form-row");
+    if (subsRow) subsRow.style.display = isVideo ? "flex" : "none";
+  }
+  if (els.embedSubsCheckbox) {
+    const row = els.embedSubsCheckbox.closest(".form-row");
+    if (row) row.style.display = isVideo ? "flex" : "none";
+  }
+  if (els.subsLanguagesInput) {
+    const row = els.subsLanguagesInput.closest(".form-row");
+    if (row) row.style.display = isVideo ? "flex" : "none";
+  }
+
+  if (els.audioBitrateSelect) {
+    const row = els.audioBitrateSelect.closest(".form-row");
+    row.style.display = isAudio ? "flex" : "none";
+  }
+
+  if (els.thumbEmbedCheckbox) {
+    const row = els.thumbEmbedCheckbox.closest(".form-row");
+    row.style.display = (isAudio || isVideo) ? "flex" : "flex";
+    els.thumbEmbedCheckbox.checked = true;
+  }
 }
 
 function prefillUrlFromActiveTab() {
@@ -81,6 +116,14 @@ function prefillUrlFromActiveTab() {
 
 async function loadBackendConfig() {
   try {
+    const settingsRes = await fetch(`${BACKEND_BASE}/api/settings`);
+    if (settingsRes.ok) {
+      const settings = await settingsRes.json();
+      if (settings.backend_mode === "remote" && settings.remote_base_url) {
+        BACKEND_BASE = settings.remote_base_url.replace(/\/$/, "");
+      }
+    }
+
     const res = await fetch(`${BACKEND_BASE}/api/config`);
     if (!res.ok) throw new Error("Failed");
     const cfg = await res.json();
@@ -132,6 +175,9 @@ function renderInfo(info) {
   const duration = info.duration_text || "";
   const views = info.view_count_text ? `${info.view_count_text} views` : "";
   els.videoStats.textContent = [duration, views].filter(Boolean).join(" • ");
+  if (info.file_exists) {
+    els.errorArea.textContent = "File already exists locally. You can redownload if you want.";
+  }
 
   if (info.is_playlist && Array.isArray(info.entries)) {
     els.playlistSection.classList.remove("hidden");
