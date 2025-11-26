@@ -116,6 +116,14 @@ function prefillUrlFromActiveTab() {
 
 async function loadBackendConfig() {
   try {
+    const settingsRes = await fetch(`${BACKEND_BASE}/api/settings`);
+    if (settingsRes.ok) {
+      const settings = await settingsRes.json();
+      if (settings.backend_mode === "remote" && settings.remote_base_url) {
+        BACKEND_BASE = settings.remote_base_url.replace(/\/$/, "");
+      }
+    }
+
     const res = await fetch(`${BACKEND_BASE}/api/config`);
     if (!res.ok) throw new Error("Failed");
     const cfg = await res.json();
@@ -167,6 +175,9 @@ function renderInfo(info) {
   const duration = info.duration_text || "";
   const views = info.view_count_text ? `${info.view_count_text} views` : "";
   els.videoStats.textContent = [duration, views].filter(Boolean).join(" • ");
+  if (info.file_exists) {
+    els.errorArea.textContent = "File already exists locally. You can redownload if you want.";
+  }
 
   if (info.is_playlist && Array.isArray(info.entries)) {
     els.playlistSection.classList.remove("hidden");

@@ -71,6 +71,9 @@ class Job:
         self.output_files = []  # list of file paths (playlist support)
         self.log = []
         self.cancel_requested = False
+        self.files_exist = None
+        self.category = None
+        self.channel = None
 
     def to_dict(self):
         return {
@@ -88,6 +91,9 @@ class Job:
             "updated_at": self.updated_at,
             "output_files": self.output_files,
             "log": self.log[-50:],  # last 50 lines
+            "files_exist": self.files_exist,
+            "category": self.category,
+            "channel": self.channel,
         }
 
 # ---------------- GLOBAL STATE ---------------- #
@@ -136,6 +142,40 @@ def humanize_int(num):
         n //= 1000
     return f"{n}T"
 
+
+def persist_job(job: Job):
+    with jobs_lock:
+        snapshot = {jid: j.to_dict() for jid, j in jobs.items()}
+    JOBS_CACHE_PATH.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_cached_jobs():
+    if not JOBS_CACHE_PATH.exists():
+        return
+    try:
+        data = json.loads(JOBS_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    for jid, raw in data.items():
+        job = Job(raw.get("url"), raw.get("options") or {})
+        job.id = jid
+        job.state = raw.get("state", "ERROR")
+        job.progress = raw.get("progress", 0.0)
+        job.speed = raw.get("speed", 0.0)
+        job.eta = raw.get("eta")
+        job.downloaded_bytes = raw.get("downloaded_bytes")
+        job.total_bytes = raw.get("total_bytes")
+        job.error = raw.get("error")
+        job.created_at = raw.get("created_at", time.time())
+        job.updated_at = raw.get("updated_at", time.time())
+        job.output_files = raw.get("output_files") or []
+        job.log = raw.get("log") or []
+        job.files_exist = raw.get("files_exist")
+        job.category = raw.get("category")
+        job.channel = raw.get("channel")
+        jobs[jid] = job
+        mark_file_existence(job)
+
 # yt-dlp logger that dumps into job.log
 class JobLogger:
     def __init__(self, job: Job):
@@ -158,6 +198,7 @@ class JobLogger:
         with jobs_lock:
             self.job.log.append(text)
             self.job.updated_at = time.time()
+        persist_job(self.job)
 
 
 def ensure_cache_dir():
@@ -253,7 +294,10 @@ def build_ydl_opts(job: Job):
             "preferredquality": audio_bitrate.replace("k", ""),
         })
 
-    # Thumbnails: write + convert + embed + metadata
+    # Always add metadata tagging before embedding thumbnails
+    postprocessors.append({"key": "FFmpegMetadata"})
+
+    # Thumbnails: write + convert + embed
     if embed_thumb:
         postprocessors.append({
             "key": "FFmpegThumbnailsConvertor",
@@ -262,9 +306,6 @@ def build_ydl_opts(job: Job):
         postprocessors.append({
             "key": "EmbedThumbnail",
         })
-
-    # Always add metadata tagging
-    postprocessors.append({"key": "FFmpegMetadata"})
 
     ydl_opts = {
         "format": format_str,
@@ -350,6 +391,28 @@ def make_progress_hook(job: Job):
             job.updated_at = time.time()
     return hook
 
+
+def validate_audio_only(info, fmt):
+    if fmt != "mp3":
+        return
+
+    def has_video(entry):
+        if not isinstance(entry, dict):
+            return False
+        downloads = entry.get("requested_downloads") or [entry]
+        for rd in downloads:
+            vcodec = rd.get("vcodec")
+            if vcodec and vcodec != "none":
+                return True
+        return False
+
+    if info.get("_type") == "playlist":
+        for entry in info.get("entries") or []:
+            if has_video(entry):
+                raise DownloadError("Audio-only stream unavailable; refusing MP4 fallback")
+    elif has_video(info):
+        raise DownloadError("Audio-only stream unavailable; refusing MP4 fallback")
+
 # ---------------- QUEUE / WORKER ---------------- #
 
 def try_start_next_jobs():
@@ -383,6 +446,8 @@ def run_job(job: Job):
 
         info = _run()
 
+        validate_audio_only(info, job.options.get("format"))
+
         output_files = []
 
         def collect_entries(e):
@@ -403,14 +468,33 @@ def run_job(job: Job):
         else:
             collect_entries(info)
 
+        organized_files = []
+        fmt = job.options.get("format", "mp4")
+        if isinstance(info, dict):
+            job.channel = info.get("channel") or info.get("uploader")
+            job.category = pick_category(info, fmt)
+
+        for f in list(dict.fromkeys(output_files)):
+            final_path = organize_output(f, info if isinstance(info, dict) else {}, fmt)
+            if fmt == "mp3" and not str(final_path).lower().endswith(".mp3"):
+                target = Path(final_path).with_suffix(".mp3")
+                try:
+                    Path(final_path).rename(target)
+                    final_path = str(target)
+                except Exception:
+                    final_path = str(final_path)
+            organized_files.append(final_path)
+
         with jobs_lock:
-            job.output_files = list(dict.fromkeys(output_files))  # unique
+            job.output_files = organized_files
+            mark_file_existence(job)
             if job.cancel_requested:
                 job.state = "CANCELLED"
             else:
                 # Fake an "EMBEDDING_THUMBNAIL" step briefly for UX
                 job.state = "EMBEDDING_THUMBNAIL" if job.options.get("embed_thumbnail", Config.EMBED_THUMBNAIL_DEFAULT) else "MERGING"
             job.updated_at = time.time()
+        persist_job(job)
 
         # Small delay to let UI show EMBEDDING_THUMBNAIL / MERGING
         time.sleep(0.5)
@@ -420,6 +504,8 @@ def run_job(job: Job):
                 job.state = "COMPLETED"
                 job.progress = 100.0
                 job.updated_at = time.time()
+            mark_file_existence(job)
+        persist_job(job)
 
     except DownloadError as e:
         with jobs_lock:
@@ -430,11 +516,13 @@ def run_job(job: Job):
                 job.state = "ERROR"
                 job.error = str(e)
             job.updated_at = time.time()
+        persist_job(job)
     except Exception as e:
         with jobs_lock:
             job.state = "ERROR"
             job.error = str(e)
             job.updated_at = time.time()
+        persist_job(job)
     finally:
         with jobs_lock:
             active_jobs = max(0, active_jobs - 1)
@@ -491,13 +579,15 @@ def api_info():
         "is_playlist": info.get("_type") == "playlist",
         "title": info.get("title"),
         "url": info.get("webpage_url") or url,
-        "thumbnail": info.get("thumbnail"),
+        "thumbnail": highest_res_thumbnail(info),
         "channel": info.get("channel") or info.get("uploader"),
         "duration": info.get("duration"),
         "duration_text": humanize_duration(info.get("duration")),
         "view_count": info.get("view_count"),
         "view_count_text": humanize_int(info.get("view_count")),
         "entries": [],
+        "category": pick_category(info, data.get("format", Config.DEFAULT_VIDEO_FORMAT)),
+        "file_exists": False,
     }
 
     if info.get("_type") == "playlist":
@@ -511,6 +601,14 @@ def api_info():
         response["entries"] = entries
     else:
         response["entries"] = [build_video_summary(info)]
+
+    # Check if we have a cached download path from history
+    with jobs_lock:
+        for j in jobs.values():
+            if j.url == url and j.output_files:
+                if any(Path(p).exists() for p in j.output_files):
+                    response["file_exists"] = True
+                    break
 
     return jsonify(response)
 
@@ -539,6 +637,7 @@ def api_download():
     with jobs_lock:
         jobs[job.id] = job
         job_queue.append(job)
+    persist_job(job)
     try_start_next_jobs()
 
     return jsonify({"job_id": job.id})
@@ -573,6 +672,7 @@ def api_cancel(job_id):
         job.cancel_requested = True
         job.state = "CANCELLED"
         job.updated_at = time.time()
+    persist_job(job)
     return jsonify({"status": "cancelled", "job_id": job_id})
 
 @app.route("/api/config", methods=["GET"])
