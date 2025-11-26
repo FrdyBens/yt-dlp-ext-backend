@@ -1,4 +1,4 @@
-let BACKEND_BASE = "http://127.0.0.1:5005";
+const BACKEND_BASE = "http://127.0.0.1:5005";
 
 const els = {};
 const jobsState = {
@@ -98,7 +98,7 @@ function updateFormatVisibility() {
 
   if (els.thumbEmbedCheckbox) {
     const row = els.thumbEmbedCheckbox.closest(".form-row");
-    row.style.display = (isAudio || isVideo) ? "flex" : "flex";
+    row.style.display = isAudio || isVideo ? "flex" : "flex";
     els.thumbEmbedCheckbox.checked = true;
   }
 }

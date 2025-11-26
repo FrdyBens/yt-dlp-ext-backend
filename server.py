@@ -52,20 +52,6 @@ class Config:
 
 Path(Config.DOWNLOAD_DIR).mkdir(parents=True, exist_ok=True)
 
-
-# ---------------- CACHE ---------------- #
-
-def ensure_cache_dir():
-    cache_dir = Path(__file__).parent / "cache"
-    cache_dir.mkdir(exist_ok=True)
-    return cache_dir
-
-
-CACHE_DIR = ensure_cache_dir()
-JOBS_CACHE_PATH = CACHE_DIR / "jobs.json"
-METADATA_CACHE_PATH = CACHE_DIR / "metadata"
-METADATA_CACHE_PATH.mkdir(exist_ok=True)
-
 # ---------------- JOB MODEL ---------------- #
 
 class Job:
@@ -214,6 +200,12 @@ class JobLogger:
             self.job.updated_at = time.time()
         persist_job(self.job)
 
+
+def ensure_cache_dir():
+    cache_dir = Path(__file__).parent / "cache"
+    cache_dir.mkdir(exist_ok=True)
+    return cache_dir
+
 # ---------------- yt-dlp OPTIONS BUILDER ---------------- #
 
 def build_format_string(options):
@@ -240,7 +232,7 @@ def build_format_string(options):
 
     if fmt in ("mp3", "m4a", "wav", "audio", "bestaudio"):
         # Strict audio-only path: never touch video streams or mp4 containers when possible
-        return "bestaudio[vcodec=none][acodec!=none][ext!=mp4][ext!=m4a]/bestaudio[vcodec=none][acodec!=none][ext!=mp4]/bestaudio[vcodec=none][acodec!=none]"
+        return "bestaudio[vcodec=none][ext!=mp4][ext!=m4a]/bestaudio[vcodec=none][ext!=mp4]/bestaudio[vcodec=none]"
 
     # Video+audio combos
     if quality == "best" or quality not in quality_map:
@@ -348,19 +340,6 @@ def collect_metadata(info):
     """Build a metadata dict suitable for MP3 tagging."""
     if not info:
         return {}
-
-    def pick_genre(tags, title):
-        lowered = " ".join(tags).lower() if tags else ""
-        title_l = (title or "").lower()
-        music_keywords = ["song", "official", "lyrics", "audio", "track", "remix", "cover", "ost"]
-        if lowered or title_l:
-            for kw in music_keywords:
-                if kw in lowered or kw in title_l:
-                    return "Music"
-        if tags:
-            return tags[0]
-        return "Other"
-
     tags = info.get("tags") or []
     upload_date = info.get("upload_date") or ""
     year = upload_date[:4] if upload_date else None
@@ -375,7 +354,7 @@ def collect_metadata(info):
         "artist": info.get("artist") or info.get("uploader") or info.get("channel"),
         "channel": info.get("channel") or info.get("uploader"),
         "album": info.get("album") or info.get("channel") or info.get("uploader"),
-        "genre": pick_genre(tags, info.get("title")),
+        "genre": (tags[0] if tags else None) or "Other",
         "year": year,
         "date": upload_date,
         "description": info.get("description"),
@@ -385,65 +364,6 @@ def collect_metadata(info):
         "thumbnail": info.get("thumbnail"),
     }
     return {k: v for k, v in metadata.items() if v is not None}
-
-
-def pick_category(info, fmt):
-    # Determine storage category based on content
-    title = (info.get("title") or "").lower()
-    tags = [t.lower() for t in (info.get("tags") or [])]
-    categories = [c.lower() for c in (info.get("categories") or [])]
-    is_music = "music" in categories or any(
-        kw in title or kw in tags for kw in ["song", "lyrics", "official", "music", "remix", "cover"]
-    )
-    is_short = info.get("duration") and info.get("duration") < 75
-    if info.get("was_live") or info.get("live_status") in {"was_live", "is_live", "is_upcoming"}:
-        return "Live Streams"
-    if is_short:
-        return "Shorts"
-    if info.get("_type") == "playlist":
-        return "Playlists"
-    if fmt in ("mp3", "m4a", "wav", "audio"):
-        return "Music" if is_music else "Other Audio"
-    return "Videos"
-
-
-def highest_res_thumbnail(info):
-    thumbs = info.get("thumbnails") or []
-    if thumbs:
-        thumbs_sorted = sorted(thumbs, key=lambda t: t.get("height", 0) or 0, reverse=True)
-        return thumbs_sorted[0].get("url")
-    return info.get("thumbnail")
-
-
-def sanitize_segment(text):
-    invalid = set('<>:"|?*\\')
-    return "".join(c for c in (text or "").strip() if c not in invalid) or "Unknown"
-
-
-def organize_output(file_path: str, info: dict, fmt: str):
-    if not file_path:
-        return file_path
-    channel = sanitize_segment(info.get("channel") or info.get("uploader") or "Unknown")
-    category = pick_category(info, fmt)
-    channel_dir = Path(Config.DOWNLOAD_DIR) / channel / category
-    channel_dir.mkdir(parents=True, exist_ok=True)
-    target = channel_dir / Path(file_path).name
-    try:
-        Path(file_path).rename(target)
-        return str(target)
-    except Exception:
-        return file_path
-
-
-def mark_file_existence(job: Job):
-    exists = []
-    for f in job.output_files:
-        exists.append(Path(f).exists())
-    job.files_exist = all(exists) if exists else False
-
-
-# Load cached jobs into memory at startup so history is preserved
-load_cached_jobs()
 
 def make_progress_hook(job: Job):
     def hook(d):
@@ -796,7 +716,8 @@ def api_metadata_generate():
     except Exception as exc:
         return jsonify({"error": f"Failed to fetch metadata: {exc}"}), 500
     metadata = collect_metadata(info)
-    (METADATA_CACHE_PATH / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
+    cache_dir = ensure_cache_dir()
+    (cache_dir / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -812,7 +733,8 @@ def api_metadata_save():
     metadata = data.get("metadata") or {}
     if not url:
         return jsonify({"error": "URL is required"}), 400
-    (METADATA_CACHE_PATH / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
+    cache_dir = ensure_cache_dir()
+    (cache_dir / f"{uuid.uuid5(uuid.NAMESPACE_URL, url)}.json").write_text(
         json.dumps(metadata, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
